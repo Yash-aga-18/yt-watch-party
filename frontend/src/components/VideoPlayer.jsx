@@ -115,6 +115,12 @@ export default function VideoPlayer({ syncState, role, onAction }) {
   // user action (which YouTube may report several times) is not sent to the server twice.
   const muteSentAtRef = useRef(0); // stops a host's mute change from being sent twice
   const rateSentAtRef = useRef(0); // same for the speed
+  // Same idea for play and pause. The scan below keeps re-asserting the room's play/pause
+  // so a player that never started cannot stay stuck, and this is what stops it from
+  // undoing a press the user just made: YouTube's own event takes 400ms to be confirmed,
+  // and the room would still be showing the old state for that whole time.
+  const playSentAtRef = useRef(0);
+  const playFixAtRef = useRef(0); // when we last had to ask the player to play or pause again
   // The room's mute setting and speed this player has already obeyed. Mute and speed do not
   // drift the way a video position does: they only need pushing into the player when the
   // room's value CHANGES. Re-applying an unchanged value on every sync is what used to erase
@@ -384,6 +390,9 @@ export default function VideoPlayer({ syncState, role, onAction }) {
   // The user did something in YouTube's player (play, pause, seek or another video)
   function userAction(action, payload = {}) {
     console.info(`[watch-party] you used the player: ${action}`, payload);
+    // A play or a pause that came from this browser: hold off re-asserting the room's
+    // state until the server has had time to answer (see playSentAtRef).
+    if (action === 'play' || action === 'pause') playSentAtRef.current = Date.now();
     onActionRef.current(action, payload); // tell the server: hosts change the room, participants send a request
     const isController = roleRef.current === 'host' || roleRef.current === 'moderator';
     if (!isController) {
@@ -435,6 +444,12 @@ export default function VideoPlayer({ syncState, role, onAction }) {
             if (Date.now() < ignoreUntilRef.current) return;
             const wanted = e.data;
             if (wanted !== PLAYING && wanted !== PAUSED) return; // ignore buffering, ended, ...
+            // The player changed play/pause and it was not us who did it. Claim the change
+            // right now, not 400ms below when it is confirmed: the scan that keeps re-asserting
+            // the room's play/pause reads this, and the room still shows the OLD state until
+            // the server has been told. Without this the scan would see "the room says playing,
+            // this player is paused" and put the play back before the pause was ever sent.
+            playSentAtRef.current = Date.now();
             // Where the video was when this state change happened. YouTube also pauses
             // for a moment when the user PRESSES its seek bar, and that pause is not a
             // real pause: the drag itself is reported as a seek a moment later, so
@@ -564,6 +579,20 @@ export default function VideoPlayer({ syncState, role, onAction }) {
           confirmedRef.current = true; // now the player truly holds our video
           retriesRef.current = 0;
           setProblem('');
+        } else if (
+          showing &&                                    // our video is in the player...
+          state === BUFFERING &&                        // ...but it is stuck loading
+          syncRef.current && syncRef.current.playState === 'playing' &&
+          now - playFixAtRef.current > 2000
+        ) {
+          // The room is playing and this player is holding the right video but has not started.
+          // Everything below this point is skipped until the video is confirmed, so without this
+          // the only recovery was the 8 second retry above - which reloads the whole video and
+          // loses the position. Asking a loading player to play is harmless if it is already on
+          // its way, and it is what rescues one that has genuinely stalled.
+          playFixAtRef.current = now;
+          console.info('[watch-party] room is playing but this video is still loading: asking it to play');
+          player.playVideo();
         }
         return;
       }
@@ -657,6 +686,46 @@ export default function VideoPlayer({ syncState, role, onAction }) {
           } else {
             captionPendingRef.current = null; // back in sync, nothing pending
           }
+        }
+      }
+
+      // 6. Keep play/pause true OVER TIME, not only at the moment a sync arrived.
+      // applyState() is the one other place that starts or stops this player, and it runs
+      // only when a NEW sync_state arrives. It also leaves a BUFFERING player alone on
+      // purpose, expecting it to start by itself. Put those together and a player that is
+      // still loading when a play arrives - which is ordinary on a slow connection - can
+      // settle into paused and never be asked again: the room says it is playing, this
+      // video sits still, and nothing corrects it until somebody presses something. So
+      // re-assert the room's state here as well, on a timer, where it cannot stay wrong.
+      const room = syncRef.current;
+      if (
+        room && room.videoId &&
+        now > ignoreUntilRef.current &&         // not while we are the ones driving the player
+        now > settleUntilRef.current &&         // not straight after a drift correction
+        now - playSentAtRef.current > 4000 &&   // not while a press made here is still travelling
+        now - playFixAtRef.current > 2000       // and at most one correction every 2 seconds
+      ) {
+        const wantPlaying = room.playState === 'playing';
+        // BUFFERING counts as "not playing yet". Asking a loading player to play is harmless
+        // (YouTube ignores it until it has data) and it is the only thing that rescues a
+        // player which stalled and would otherwise never start on its own.
+        const notPlaying =
+          state === PAUSED || state === CUED || state === UNSTARTED || state === BUFFERING;
+
+        if (wantPlaying && notPlaying) {
+          playFixAtRef.current = now;
+          ignoreEvents();
+          console.info('[watch-party] room is playing but this player is not: asking it to play');
+          player.playVideo();
+          return;
+        }
+
+        if (!wantPlaying && state === PLAYING) {
+          playFixAtRef.current = now;
+          ignoreEvents();
+          console.info('[watch-party] room is paused but this player is not: asking it to pause');
+          player.pauseVideo();
+          return;
         }
       }
     }, 500);
