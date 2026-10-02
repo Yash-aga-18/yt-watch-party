@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+body {
+  background-color: #f3f4f6;
+  color: #111827;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #9ca3af;
+  background: white;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.btn {
+  border: 1px solid #111827;
+  background: #111827;
+  color: white;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.btn:hover {
+  background: #374151;
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-light {
+  border: 1px solid #9ca3af;
+  background: white;
+  color: #111827;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.btn-light:hover {
+  background: #e5e7eb;
+}
+.btn-light:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.card {
+  border: 1px solid #d1d5db;
+  background: white;
+  padding: 1rem;
+}

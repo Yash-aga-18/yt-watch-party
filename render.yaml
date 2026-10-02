@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: yt-watch-party
+    runtime: node
+    plan: free
+    buildCommand: npm install --prefix backend && npm install --prefix frontend --include=dev && npm run build --prefix frontend
+    startCommand: npm start --prefix backend
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      # Optional: without it the service runs in memory only and rooms are lost on
+      # restart, but every feature still works.
+      - key: MONGODB_URI
+        sync: false
+      # "*" is fine here because this single service serves the frontend itself, so
+      # the page and the WebSocket share an origin. Set it to your custom domain
+      # (or your frontend's URL) if you add one or host the frontend separately.
+      - key: CLIENT_ORIGIN
+        value: "*"
