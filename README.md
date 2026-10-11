@@ -6,7 +6,7 @@ seek, change video); everybody else follows along in real time.
 Built with JavaScript only — React on the frontend, Node/Express + Socket.IO on the backend,
 MongoDB for storage.
 
-**Live URL:**https://yt-watch-party-omega.vercel.app/
+**Live URL:** https://yt-watch-party-omega.vercel.app/
 
 ---
 
